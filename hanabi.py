@@ -4,6 +4,8 @@ class Object:
   def __repr__(self):
     return repr(self.__dict__)
 
+DEBUG = False
+
 COLOR = "COLOR"
 NUMBER = "NUMBER"
 
@@ -83,11 +85,14 @@ class Hanabi(Object):
       for player_num, player in enumerate(self.players):
         action, x = player.Play(player_num, self)
         self.last_hint[player_num] = None  # Clear so it doesn't get seen twice.
-        #print
-        #print self
-        #print "Played:", self.next_card
-        #print "Remaining:", self.remaining
-        #print "Action:", player_num, action, x
+        if DEBUG:
+          print
+          print "Hands:", self.hands
+          print "Played:", self.next_card
+          print "Remaining:", self.remaining
+          print "Hints:", self.num_hint_tokens, "Errors:", self.num_error_tokens
+          print
+          print "Action:", player_num, action, x
         if action == PLAY:
           self.Play(player_num, x)
         elif action == DISCARD:
@@ -229,6 +234,42 @@ class SignalPlayer(Player):
     # discarding card #3 is 1 point better, not sure why.
     return DISCARD, self.discard_num
 
+class DimaPlayer(Player):
+  def __init__(self, discard_num=1):
+    self.discard_num = discard_num
+
+  def Play(self, player_num, state):
+    # If partner hinted us, play the indicated card.
+    last_hint = state.last_hint[player_num]
+    if last_hint:
+      attribute, value = last_hint
+      for card_num, card in enumerate(state.hands[player_num]):
+        if card.attr[attribute] == value:
+          return PLAY, card_num
+
+    # Else see if we can hint partner.
+    if state.num_hint_tokens:
+      for other_num in range(len(state.players)):
+        if other_num != player_num:
+          allow_color = [True] * 5
+          allow_num   = [True] * 5
+          for card in state.hands[other_num]:
+            if state.IsPlayable(card):
+              # If we can unambiguously hint, do so.
+              if allow_color[card.color()]:
+                return HINT, (other_num, COLOR, card.color())
+              if allow_num[card.num()]:
+                return HINT, (other_num, NUMBER, card.num())
+            # Don't allow any further cards to use these attributes (or
+            # partner will play the wrong card).
+            allow_color[card.color()] = False
+            allow_num[card.num()] = False
+
+    # Else discard. Originally I discarded oldest card, but it turns out that
+    # discarding card #1 is 0.5 point better, not sure why.
+    return DISCARD, self.discard_num
+
+
 def TestPlayer(player, iters):
   total_score = 0
   for _ in range(iters):
@@ -237,10 +278,12 @@ def TestPlayer(player, iters):
     total_score += score
   return float(total_score) / iters
 
-game = Hanabi([SignalPlayer(), SignalPlayer()])
-print game.Run()
+# DEBUG=True
+# game = Hanabi([DimaPlayer(), DimaPlayer()])
+# print game.Run()
 
-# iters = 1000
-# print "Simple", TestPlayer(SimplePlayer(), 1000)
-# for x in range(5):
-#   print "Signal", x, TestPlayer(SignalPlayer(x), 1000)
+iters = 1000
+print "Simple", TestPlayer(SimplePlayer(), iters)
+print "Signal", TestPlayer(SignalPlayer(), iters)
+for x in range(5):
+  print "Dima", x, TestPlayer(DimaPlayer(x), iters)
