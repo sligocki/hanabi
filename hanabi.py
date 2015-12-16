@@ -4,22 +4,22 @@ class Object:
   def __repr__(self):
     return repr(self.__dict__)
 
-ATTRIBUTE_COLOR = "COLOR"
-ATTRIBUTE_NUMBER = "NUMBER"
+COLOR = "COLOR"
+NUMBER = "NUMBER"
 
 class Card(Object):
   def __init__(self, color, num):  # Note: num -1 from card game 1->0, 5->4
-    self.attr = { ATTRIBUTE_COLOR: color, ATTRIBUTE_NUMBER: num }
-    self.knows = { ATTRIBUTE_COLOR: False, ATTRIBUTE_NUMBER: False }
+    self.attr = { COLOR: color, NUMBER: num }
+    self.knows = { COLOR: False, NUMBER: False }
 
   def color(self):
-    return self.attr[ATTRIBUTE_COLOR]
+    return self.attr[COLOR]
   def num(self):
-    return self.attr[ATTRIBUTE_NUMBER]
+    return self.attr[NUMBER]
 
-PLAY_ACTION = "PLAY"
-DISCARD_ACTION = "DISCARD"
-HINT_ACTION = "HINT"
+PLAY = "PLAY"
+DISCARD = "DISCARD"
+HINT = "HINT"
 
 PLAYING = "PLAYING"
 GAME_OVER = "GAME_OVER"
@@ -32,13 +32,13 @@ class Hanabi(Object):
     self.hand_size = 5
     self.num_colors = 5
     self.num_distrib = [5, 2, 2, 2, 1]
-    self.num_attr = { ATTRIBUTE_COLOR: self.num_colors,
-                      ATTRIBUTE_NUMBER: len(self.num_distrib) }
+    self.num_attr = { COLOR: self.num_colors, NUMBER: len(self.num_distrib) }
 
     self.deck = []
     for color in range(self.num_colors):
       for num, count in enumerate(self.num_distrib):
-        self.deck += [Card(color, num)] * count
+        for _ in range(count):
+          self.deck.append(Card(color, num))
     random.shuffle(self.deck)
 
     # Next card playable for each color
@@ -53,6 +53,8 @@ class Hanabi(Object):
 
     self.mode = PLAYING
     self.message = None
+
+    self.last_hint = [None for _ in range(len(self.players))]
 
   def Check(self, val, message):
     if not val:
@@ -78,22 +80,26 @@ class Hanabi(Object):
     while True:
       for player_num, player in enumerate(self.players):
         action, x = player.Play(player_num, self)
+        self.last_hint[player_num] = None  # Clear so it doesn't get seen twice.
         #print self
         #print "Action:", player_num, action, x
-        if action == PLAY_ACTION:
+        if action == PLAY:
           self.Play(player_num, x)
-        elif action == DISCARD_ACTION:
+        elif action == DISCARD:
           self.Discard(player_num, x)
-        elif action == HINT_ACTION:
+        elif action == HINT:
           other_player, attribute, value = x
           self.Hint(other_player, attribute, value)
 
         if self.mode != PLAYING:
-          return self.mode, sum(self.next_card), self.message
+          return self.mode, sum(self.next_card), self.message, self.num_hint_tokens, self.num_error_tokens
+
+  def IsPlayable(self, card):
+    return card.num() == self.next_card[card.color()]
 
   def Play(self, player_num, card_num):
     card = self.ReplaceCard(player_num, card_num)
-    if card.num() == self.next_card[card.color()]:
+    if self.IsPlayable(card):
       # Success
       self.next_card[card.color()] += 1
     else:
@@ -118,7 +124,7 @@ class Hanabi(Object):
         revealed_cards = True
     self.Check(revealed_cards, "Hint revealed no cards.")
 
-    # TODO: Remember last hints.
+    self.last_hint[player_num] = (attribute, value)  # TODO: Add which cards it applies to.
 
 class Player:
   def Play(self, player_num, state):
@@ -146,8 +152,8 @@ class HumanPlayer:
     return [self.OtherCardStr(card) for card in hand]
 
   def SelfCardStr(self, card):
-    num = str(card.num()) if card.knows[ATTRIBUTE_NUMBER] else "?"
-    color = self.COLORS[card.color()] if card.knows[ATTRIBUTE_COLOR] else "?"
+    num = str(card.num()) if card.knows[NUMBER] else "?"
+    color = self.COLORS[card.color()] if card.knows[COLOR] else "?"
     return num + color
   def SelfHandStr(self, hand):
     return [self.SelfCardStr(card) for card in hand]
@@ -158,17 +164,17 @@ class SimplePlayer(Player):
     # played (or is no longer useful).
     for card_num, card in enumerate(state.hands[player_num]):
       if False not in card.knows.values():
-        if card.num() == state.next_card[card.color()]:
-          return PLAY_ACTION, card_num
+        if state.IsPlayable(card):
+          return PLAY, card_num
         elif card.num() < state.next_card[card.color()]:
-          return DISCARD_ACTION, card_num
+          return DISCARD, card_num
     # Hint most info possible.
     if state.num_hint_tokens:
       max_score = 0
       best_hint = None
       for other_num in range(len(state.players)):
         if other_num != player_num:
-          for attr in ATTRIBUTE_COLOR, ATTRIBUTE_NUMBER:
+          for attr in COLOR, NUMBER:
             for attr_val in range(state.num_attr[attr]):
               hint = other_num, attr, attr_val
               score = self.HintValue(state, hint)
@@ -176,10 +182,10 @@ class SimplePlayer(Player):
                 max_score = score
                 best_hint = hint
       if best_hint:
-        return HINT_ACTION, best_hint
+        return HINT, best_hint
     # Discard
     card_num = random.randrange(len(state.hands[player_num]))
-    return DISCARD_ACTION, card_num
+    return DISCARD, card_num
 
   def HintValue(self, state, hint):
     player_num, attr, attr_val = hint
@@ -189,11 +195,36 @@ class SimplePlayer(Player):
         score += 1  # Literally count the number of pieces of info transmitted.
     return score
 
-iters = 10000
-total_score = 0
-for _ in range(iters):
-  game = Hanabi([SimplePlayer(), SimplePlayer()])
-  result, score, message = game.Run()
-  assert result == GAME_OVER
-  total_score += score
-print float(total_score) / iters
+class SignalPlayer(Player):
+  def Play(self, player_num, state):
+    # If partner hinted us, play the indicated card.
+    last_hint = state.last_hint[player_num]
+    if last_hint:
+      attribute, value = last_hint
+      return PLAY, value
+
+    # Else see if we can hint partner.
+    if state.num_hint_tokens:
+      for other_num in range(len(state.players)):
+        if other_num != player_num:
+          has_attr = [None for _ in range(5)]
+          for card in state.hands[other_num]:
+            has_attr[card.color()] = COLOR
+            has_attr[card.num()] = NUMBER
+          for card_num, card in enumerate(state.hands[other_num]):
+            if state.IsPlayable(card) and has_attr[card_num] != None:
+              return HINT, (other_num, has_attr[card_num], card_num)
+
+    # Else discard oldest card.
+    return DISCARD, 0
+
+def TestPlayer(player, iters):
+  total_score = 0
+  for _ in range(iters):
+    game = Hanabi([player(), player()])
+    score = game.Run()[1]
+    total_score += score
+  return float(total_score) / iters
+
+print "Simple", TestPlayer(SimplePlayer, 1000)
+print "Signal", TestPlayer(SignalPlayer, 1000)
