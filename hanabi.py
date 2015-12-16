@@ -65,16 +65,17 @@ class Hanabi(Object):
     if not self.deck:
       self.mode = GAME_OVER
     else:
-      card = self.deck.pop()
-      self.remaining[card.color()][card.num()] -= 1
-      assert self.remaining[card.color()][card.num()] >= 0
-      return card
+      return self.deck.pop()
 
   def ReplaceCard(self, player_num, card_num):
     card = self.hands[player_num][card_num]
     # Remove this card, and place new card at end.
     del self.hands[player_num][card_num]
     self.hands[player_num].append(self.Draw())
+
+    self.remaining[card.color()][card.num()] -= 1
+    assert self.remaining[card.color()][card.num()] >= 0
+
     return card
 
   def Run(self):
@@ -82,7 +83,10 @@ class Hanabi(Object):
       for player_num, player in enumerate(self.players):
         action, x = player.Play(player_num, self)
         self.last_hint[player_num] = None  # Clear so it doesn't get seen twice.
+        #print
         #print self
+        #print "Played:", self.next_card
+        #print "Remaining:", self.remaining
         #print "Action:", player_num, action, x
         if action == PLAY:
           self.Play(player_num, x)
@@ -139,8 +143,10 @@ class HumanPlayer:
         print other_num, self.OtherHandStr(state.hands[other_num])
     print "# Your hand"
     print self.SelfHandStr(state.hands[player_num])
-    print "# Next cards"
+    print "# Playable"
     print state.next_card
+    print "# Remaining"
+    print state.remaining
     print "# Hint tokens = ", state.num_hint_tokens
     print "# Error tokens = ", state.num_error_tokens
 
@@ -231,7 +237,10 @@ def TestPlayer(player, iters):
     total_score += score
   return float(total_score) / iters
 
-iters = 1000
-print "Simple", TestPlayer(SimplePlayer(), 1000)
-for x in range(5):
-  print "Signal", x, TestPlayer(SignalPlayer(x), 1000)
+game = Hanabi([SignalPlayer(), SignalPlayer()])
+print game.Run()
+
+# iters = 1000
+# print "Simple", TestPlayer(SimplePlayer(), 1000)
+# for x in range(5):
+#   print "Signal", x, TestPlayer(SignalPlayer(x), 1000)
