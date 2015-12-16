@@ -8,6 +8,10 @@ class Card:
     self.attr[ATTRIBUTE_NUMBER] = num  # Note: -1 from card game 1->0, 5->4
     self.knows = [False, False]
 
+PLAY_ACTION = 0
+DISCARD_ACTION = 1
+HINT_ACTION = 2
+
 class Hanabi:
   def __init__(self, players):
     self.players = players
@@ -46,7 +50,7 @@ class Hanabi:
   def Run(players):
     while True:
       for player_num, player in enumerate(self.players):
-        action, x = player.Play(self)
+        action, x = player.Play(player_num, self)
         if action == PLAY_ACTION:
           self.Play(player_num, x)
         elif action == DISCARD_ACTION:
@@ -81,3 +85,33 @@ class Hanabi:
         card.knows[attribute] = True
         revealed_card == True
     assert revealed_cards
+
+class Player:
+  def Play(self, player_num, state):
+    pass
+
+class HumanPlayer:
+  def Play(self, player_num, state):
+    print "# Other hands"
+    for other_num in range(state.players):
+      if other_num != player_num:
+        print other_num, self.OtherHandStr(state.hands[other_num])
+    print "# Your hand"
+    print self.SelfHandStr(state.hands[player_num])
+
+    return input("Move:")
+
+  COLORS = ["R", "G", "B", "W", "P"]
+  def OtherCardStr(self, card):
+    return (str(card.attr[ATTRIBUTE_NUM]) +
+            card.colors[card.attr[ATTRIBUTE_COLOR]])
+  def OtherHandStr(self, hand):
+    return [self.OtherCardStr(card) for card in hand]
+
+  def SelfCardStr(self, card):
+    num = str(card.attr[ATTRIBUTE_NUM]) if card.knows[ATTRIBUTE_NUM] else "?"
+    color = (card.colors[card.attr[ATTRIBUTE_COLOR]]
+             if card.knows[ATTRIBUTE_COLOR] else "?")
+    return num + color
+  def SelfHandStr(self, hand):
+    return [self.SelfCardStr(card) for card in hand]
