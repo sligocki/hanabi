@@ -1,3 +1,5 @@
+import random
+
 ATTRIBUTE_COLOR = 0
 ATTRIBUTE_NUMBER = 1
 
@@ -7,6 +9,11 @@ class Card:
     self.attr[ATTRIBUTE_COLOR] = color
     self.attr[ATTRIBUTE_NUMBER] = num  # Note: -1 from card game 1->0, 5->4
     self.knows = [False, False]
+
+  def color(self):
+    return self.attr[ATTRIBUTE_COLOR]
+  def num(self):
+    return self.attr[ATTRIBUTE_NUMBER]
 
 PLAY_ACTION = 0
 DISCARD_ACTION = 1
@@ -36,9 +43,10 @@ class Hanabi:
     self.num_error_tokens = 3  #?
 
   def Draw(self):
+    # TODO: Mark game over when cards are gone.
     card = self.deck.pop()
-    self.remaining[card.color][card.num] -= 1
-    assert self.remaining[card.color][card.num] >= 0
+    self.remaining[card.color()][card.num()] -= 1
+    assert self.remaining[card.color()][card.num()] >= 0
     return card
 
   def ReplaceCard(self, player_num, card_num):
@@ -47,7 +55,7 @@ class Hanabi:
     self.hands[player_num][card_num] = self.Draw()
     return card
 
-  def Run(players):
+  def Run(self):
     while True:
       for player_num, player in enumerate(self.players):
         action, x = player.Play(player_num, self)
@@ -63,16 +71,16 @@ class Hanabi:
           return 0  # Lost the game
 
   def Play(self, player_num, card_num):
-    card = ReplaceCard(player_num, card_num)
-    if card.num == self.played[card.color] + 1:
+    card = self.ReplaceCard(player_num, card_num)
+    if card.num() == self.played[card.color()] + 1:
       # Success
-      self.played[card.color] += 1
+      self.played[card.color()] += 1
     else:
       # Mistake
       self.num_error_tokens -= 1
 
   def Discard(self, player_num, card_num):
-    ReplaceCard(player_num, card_num)
+    self.ReplaceCard(player_num, card_num)
     self.num_hint_tokens += 1
 
   def Hint(self, player_num, attribute, value):
@@ -83,7 +91,7 @@ class Hanabi:
     for card in self.hands[player_num]:
       if card.attr[attribute] == value:
         card.knows[attribute] = True
-        revealed_card == True
+        revealed_cards = True
     assert revealed_cards
 
 class Player:
@@ -93,25 +101,30 @@ class Player:
 class HumanPlayer:
   def Play(self, player_num, state):
     print "# Other hands"
-    for other_num in range(state.players):
+    for other_num in range(len(state.players)):
       if other_num != player_num:
         print other_num, self.OtherHandStr(state.hands[other_num])
     print "# Your hand"
     print self.SelfHandStr(state.hands[player_num])
+    print "# Played"
+    print state.played
+    print "# Hint tokens = ", state.num_hint_tokens
+    print "# Error tokens = ", state.num_error_tokens
 
     return input("Move:")
 
   COLORS = ["R", "G", "B", "W", "P"]
   def OtherCardStr(self, card):
-    return (str(card.attr[ATTRIBUTE_NUM]) +
-            card.colors[card.attr[ATTRIBUTE_COLOR]])
+    return str(card.num()) + self.COLORS[card.color()]
   def OtherHandStr(self, hand):
     return [self.OtherCardStr(card) for card in hand]
 
   def SelfCardStr(self, card):
-    num = str(card.attr[ATTRIBUTE_NUM]) if card.knows[ATTRIBUTE_NUM] else "?"
-    color = (card.colors[card.attr[ATTRIBUTE_COLOR]]
-             if card.knows[ATTRIBUTE_COLOR] else "?")
+    num = str(card.num()) if card.knows[ATTRIBUTE_NUMBER] else "?"
+    color = self.COLORS[card.color()] if card.knows[ATTRIBUTE_COLOR] else "?"
     return num + color
   def SelfHandStr(self, hand):
     return [self.SelfCardStr(card) for card in hand]
+
+game = Hanabi([HumanPlayer(), HumanPlayer()])
+game.Run()
