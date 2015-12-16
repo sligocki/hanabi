@@ -72,8 +72,9 @@ class Hanabi(Object):
 
   def ReplaceCard(self, player_num, card_num):
     card = self.hands[player_num][card_num]
-    # TODO: Maybe re-arrange?
-    self.hands[player_num][card_num] = self.Draw()
+    # Remove this card, and place new card at end.
+    del self.hands[player_num][card_num]
+    self.hands[player_num].append(self.Draw())
     return card
 
   def Run(self):
@@ -196,6 +197,9 @@ class SimplePlayer(Player):
     return score
 
 class SignalPlayer(Player):
+  def __init__(self, discard_num=3):
+    self.discard_num = discard_num
+
   def Play(self, player_num, state):
     # If partner hinted us, play the indicated card.
     last_hint = state.last_hint[player_num]
@@ -215,16 +219,19 @@ class SignalPlayer(Player):
             if state.IsPlayable(card) and has_attr[card_num] != None:
               return HINT, (other_num, has_attr[card_num], card_num)
 
-    # Else discard oldest card.
-    return DISCARD, 0
+    # Else discard. Originally I discarded oldest card, but it turns out that
+    # discarding card #3 is 1 point better, not sure why.
+    return DISCARD, self.discard_num
 
 def TestPlayer(player, iters):
   total_score = 0
   for _ in range(iters):
-    game = Hanabi([player(), player()])
+    game = Hanabi([player, player])
     score = game.Run()[1]
     total_score += score
   return float(total_score) / iters
 
-print "Simple", TestPlayer(SimplePlayer, 1000)
-print "Signal", TestPlayer(SignalPlayer, 1000)
+iters = 1000
+print "Simple", TestPlayer(SimplePlayer(), 1000)
+for x in range(5):
+  print "Signal", x, TestPlayer(SignalPlayer(x), 1000)
