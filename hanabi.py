@@ -1,4 +1,6 @@
+import csv
 import random
+import sys
 
 class Object:
   def __repr__(self):
@@ -8,11 +10,18 @@ DEBUG = False
 
 COLOR = "COLOR"
 NUMBER = "NUMBER"
+def OtherAttribute(x):
+  if x == COLOR:
+    return NUMBER
+  else:
+    assert x == NUMBER
+    return COLOR
 
 class Card(Object):
   def __init__(self, color, num):  # Note: num -1 from card game 1->0, 5->4
     self.attr = { COLOR: color, NUMBER: num }
     self.knows = { COLOR: False, NUMBER: False }
+    self.save = False
 
   def color(self):
     return self.attr[COLOR]
@@ -106,6 +115,12 @@ class Hanabi(Object):
 
   def IsPlayable(self, card):
     return card.num() == self.next_card[card.color()]
+
+  def IsCritical(self, card):
+    """Is this the last copy of a card we haven't played yet? Thus discarding
+    it would reduce our max potential score."""
+    return (card.num() >= self.next_card[card.color()] and  # Future playable
+            self.remaining[card.color()][card.num()] == 1)  # Last copy
 
   def Play(self, player_num, card_num):
     card = self.ReplaceCard(player_num, card_num)
@@ -235,7 +250,7 @@ class SignalPlayer(Player):
     return DISCARD, self.discard_num
 
 class DimaPlayer(Player):
-  def __init__(self, discard_num=1):
+  def __init__(self, discard_num=4):
     self.discard_num = discard_num
 
   def Play(self, player_num, state):
@@ -243,7 +258,8 @@ class DimaPlayer(Player):
     last_hint = state.last_hint[player_num]
     if last_hint:
       attribute, value = last_hint
-      for card_num, card in enumerate(state.hands[player_num]):
+      for card_num in reversed(range(len(state.hands[player_num]))):
+        card = state.hands[player_num][card_num]
         if card.attr[attribute] == value:
           return PLAY, card_num
 
@@ -253,7 +269,7 @@ class DimaPlayer(Player):
         if other_num != player_num:
           allow_color = [True] * 5
           allow_num   = [True] * 5
-          for card in state.hands[other_num]:
+          for card in reversed(state.hands[other_num]):
             if state.IsPlayable(card):
               # If we can unambiguously hint, do so.
               if allow_color[card.color()]:
@@ -269,21 +285,68 @@ class DimaPlayer(Player):
     # discarding card #1 is 0.5 point better, not sure why.
     return DISCARD, self.discard_num
 
+class SignalSavePlayer(Player):
+  def __init__(self, discard_num=3, play_attr=NUMBER):
+    self.discard_num = discard_num
+    self.play_attr = play_attr
+    self.save_attr = OtherAttribute(self.play_attr)
 
-def TestPlayer(player, iters):
-  total_score = 0
+  def Play(self, player_num, state):
+    # If partner hinted us, play/save the indicated card.
+    last_hint = state.last_hint[player_num]
+    if last_hint:
+      attribute, value = last_hint
+      if attribute == self.play_attr:
+        return PLAY, value
+      else:
+        state.hands[player_num][value].save = True
+
+    # Else see if we can hint partner to play a card.
+    if state.num_hint_tokens:
+      for other_num in range(len(state.players)):
+        if other_num != player_num:
+          has_attr = [False for _ in range(5)]
+          for card in state.hands[other_num]:
+            has_attr[card.attr[self.play_attr]] = True
+          for card_num, card in enumerate(state.hands[other_num]):
+            if state.IsPlayable(card) and has_attr[card_num]:
+              return HINT, (other_num, self.play_attr, card_num)
+
+      # Hint partner to save a card.
+      for other_num in range(len(state.players)):
+        if other_num != player_num:
+          has_attr = [False for _ in range(5)]
+          for card in state.hands[other_num]:
+            has_attr[card.attr[self.save_attr]] = True
+          for card_num, card in enumerate(state.hands[other_num]):
+            if state.IsCritical(card) and has_attr[card_num]:
+              return HINT, (other_num, self.save_attr, card_num)
+
+    # Else discard.
+    for card_num, card in enumerate(state.hands[player_num]):
+      if not card.save:
+        return DISCARD, card_num
+
+    return DISCARD, self.discard_num
+
+
+def HistogramPlayers(players, iters):
+  histogram = [0] * 26
   for _ in range(iters):
-    game = Hanabi([player, player])
+    game = Hanabi(players)
     score = game.Run()[1]
-    total_score += score
-  return float(total_score) / iters
+    histogram[score] += 1
+  return histogram
 
-# DEBUG=True
-# game = Hanabi([DimaPlayer(), DimaPlayer()])
-# print game.Run()
+def MakeCsv(configs, iters, csv_filename):
+  with open(csv_filename, "wb") as csv_file:
+    writer = csv.writer(csv_file)
+    writer.writerow(["Score"] + range(26))
+    for name, players in configs:
+      writer.writerow([name] + HistogramPlayers(players, iters))
 
-iters = 1000
-print "Simple", TestPlayer(SimplePlayer(), iters)
-print "Signal", TestPlayer(SignalPlayer(), iters)
-for x in range(5):
-  print "Dima", x, TestPlayer(DimaPlayer(x), iters)
+config = [("Simple", [SimplePlayer(), SimplePlayer()]),
+          ("Signal", [SignalPlayer(), SignalPlayer()]),
+          ("Dima", [DimaPlayer(), DimaPlayer()]),
+          ("SignalSave", [SignalSavePlayer(), SignalSavePlayer()])]
+MakeCsv(config, int(sys.argv[1]), sys.argv[2])
